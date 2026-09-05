@@ -98,6 +98,12 @@ public class GamePanel extends JPanel implements ActionListener {
         }
     }
 
+    public void setPlayerColors(Color bodyColor, Color accentColor) {
+        player.bodyColor = bodyColor;
+        player.accentColor = accentColor;
+        repaint();
+    }
+
     private void restart() {
         enemies.clear();
         particles.clear();
