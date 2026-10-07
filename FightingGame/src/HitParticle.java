@@ -28,21 +28,30 @@ public class HitParticle {
     public boolean update() {
         x += vx;
         y += vy;
-        vy += spark ? 0.15 : 0.35;
-        vx *= 0.98;
+        if (spark) {
+            vy += 0.12;
+            vx *= 0.97;
+        } else {
+            // smoke drifts up and expands feel
+            vy -= 0.04;
+            vx *= 0.96;
+            size += 0.12;
+        }
         life -= 1;
         return life > 0;
     }
 
     public void draw(Graphics2D g) {
         float alpha = (float) Math.max(0, Math.min(1, life / maxLife));
-        Color c = new Color(color.getRed(), color.getGreen(), color.getBlue(), (int) (alpha * 220));
-        g.setColor(c);
-        double s = size * (0.5 + 0.5 * alpha);
         if (spark) {
-            g.setStroke(new java.awt.BasicStroke(2f));
-            g.drawLine((int) x, (int) y, (int) (x - vx * 2), (int) (y - vy * 2));
+            Color c = new Color(color.getRed(), color.getGreen(), color.getBlue(), (int) (alpha * 230));
+            g.setColor(c);
+            g.setStroke(new java.awt.BasicStroke(2.2f, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND));
+            g.drawLine((int) x, (int) y, (int) (x - vx * 2.4), (int) (y - vy * 2.4));
         } else {
+            Color c = new Color(color.getRed(), color.getGreen(), color.getBlue(), (int) (alpha * 90));
+            g.setColor(c);
+            double s = size * (0.7 + 0.5 * (1 - alpha));
             g.fill(new Ellipse2D.Double(x - s / 2, y - s / 2, s, s));
         }
     }
