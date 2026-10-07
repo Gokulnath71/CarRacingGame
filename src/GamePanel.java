@@ -23,6 +23,14 @@ public class GamePanel extends JPanel implements ActionListener {
     private static final int HEIGHT = 720;
     private static final int ROAD_LEFT = 90;
     private static final int ROAD_RIGHT = 390;
+    private static final double POWER_MAX = 100;
+    private static final double POWER_COST = 45;
+    private static final int POWER_BURST_FRAMES = 48;
+
+    enum Place {
+        DAY,
+        NIGHT
+    }
 
     private final Timer timer;
     private final Random random = new Random();
@@ -31,6 +39,8 @@ public class GamePanel extends JPanel implements ActionListener {
     private final List<Particle> particles = new ArrayList<>();
     private final List<Scenery> scenery = new ArrayList<>();
 
+    private Place place = Place.NIGHT;
+    private boolean inMenu = true;
     private double roadOffset;
     private double dashOffset;
     private double wheelSpin;
@@ -46,6 +56,8 @@ public class GamePanel extends JPanel implements ActionListener {
     private int spawnCooldown;
     private int invincible;
     private double nitroPulse;
+    private double power = POWER_MAX * 0.35;
+    private int powerBurst;
 
     public GamePanel() {
         setPreferredSize(new Dimension(WIDTH, HEIGHT));
@@ -55,15 +67,25 @@ public class GamePanel extends JPanel implements ActionListener {
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
-                handleKey(e.getKeyCode(), true);
-                if (!running && e.getKeyCode() == KeyEvent.VK_ENTER) {
+                int code = e.getKeyCode();
+                if (inMenu) {
+                    handleMenuKey(code);
+                    return;
+                }
+                handleKey(code, true);
+                if (code == KeyEvent.VK_SPACE) {
+                    tryUsePower();
+                }
+                if (!running && code == KeyEvent.VK_ENTER) {
                     restart();
                 }
             }
 
             @Override
             public void keyReleased(KeyEvent e) {
-                handleKey(e.getKeyCode(), false);
+                if (!inMenu) {
+                    handleKey(e.getKeyCode(), false);
+                }
             }
         });
 
@@ -73,6 +95,27 @@ public class GamePanel extends JPanel implements ActionListener {
 
         timer = new Timer(16, this);
         timer.start();
+    }
+
+    private void handleMenuKey(int code) {
+        switch (code) {
+            case KeyEvent.VK_LEFT:
+            case KeyEvent.VK_A:
+            case KeyEvent.VK_1:
+                place = Place.DAY;
+                break;
+            case KeyEvent.VK_RIGHT:
+            case KeyEvent.VK_D:
+            case KeyEvent.VK_2:
+                place = Place.NIGHT;
+                break;
+            case KeyEvent.VK_ENTER:
+            case KeyEvent.VK_SPACE:
+                startRace();
+                break;
+            default:
+                break;
+        }
     }
 
     private void handleKey(int code, boolean pressed) {
@@ -98,7 +141,8 @@ public class GamePanel extends JPanel implements ActionListener {
         }
     }
 
-    private void restart() {
+    private void startRace() {
+        inMenu = false;
         enemies.clear();
         particles.clear();
         score = 0;
@@ -107,9 +151,33 @@ public class GamePanel extends JPanel implements ActionListener {
         speed = 8;
         running = true;
         invincible = 0;
+        power = POWER_MAX * 0.35;
+        powerBurst = 0;
+        left = right = up = down = false;
         player.x = WIDTH / 2.0 - 21;
         player.y = HEIGHT - 160;
         player.tilt = 0;
+    }
+
+    private void restart() {
+        inMenu = true;
+        running = true;
+        enemies.clear();
+        particles.clear();
+        left = right = up = down = false;
+        powerBurst = 0;
+        player.x = WIDTH / 2.0 - 21;
+        player.y = HEIGHT - 160;
+        player.tilt = 0;
+    }
+
+    private void tryUsePower() {
+        if (!running || powerBurst > 0 || power < POWER_COST) {
+            return;
+        }
+        power -= POWER_COST;
+        powerBurst = POWER_BURST_FRAMES;
+        burst(player.x + player.width / 2, player.y + player.height, new Color(80, 220, 255, 200));
     }
 
     @Override
@@ -134,6 +202,12 @@ public class GamePanel extends JPanel implements ActionListener {
             }
         }
 
+        if (inMenu) {
+            spawnIdleParticles();
+            updateParticles();
+            return;
+        }
+
         if (!running) {
             spawnIdleParticles();
             updateParticles();
@@ -150,8 +224,8 @@ public class GamePanel extends JPanel implements ActionListener {
             targetTilt = 0.28;
         }
         if (up) {
-            speed = Math.min(18, speed + 0.12);
-            player.y = Math.max(80, player.y - 3);
+            speed = Math.min(14, speed + 0.08);
+            player.y = Math.max(80, player.y - 2);
         } else if (down) {
             speed = Math.max(5, speed - 0.18);
             player.y = Math.min(HEIGHT - 100, player.y + 3);
@@ -160,8 +234,18 @@ public class GamePanel extends JPanel implements ActionListener {
             speed += (10 - speed) * 0.02;
         }
 
+        if (powerBurst > 0) {
+            powerBurst--;
+            speed = Math.min(18, speed + 0.35);
+            player.y = Math.max(70, player.y - 1.5);
+        }
+
         player.x = Math.max(ROAD_LEFT + 8, Math.min(ROAD_RIGHT - player.width - 8, player.x));
         player.tilt += (targetTilt - player.tilt) * 0.25;
+
+        if (powerBurst <= 0) {
+            power = Math.min(POWER_MAX, power + 0.08 + speed * 0.01);
+        }
 
         spawnExhaust();
         spawnSpeedLines();
@@ -200,6 +284,7 @@ public class GamePanel extends JPanel implements ActionListener {
         lives--;
         invincible = 90;
         speed = 7;
+        powerBurst = 0;
         enemies.remove(enemy);
         if (lives <= 0) {
             running = false;
@@ -233,7 +318,10 @@ public class GamePanel extends JPanel implements ActionListener {
                     true
             ));
         }
-        if (up) {
+        if (up || powerBurst > 0) {
+            Color trail = powerBurst > 0
+                    ? new Color(255, 200, 60, 200)
+                    : new Color(80, 220, 255, 180);
             particles.add(new Particle(
                     player.x + 12 + random.nextInt(16),
                     player.y + player.height,
@@ -241,7 +329,7 @@ public class GamePanel extends JPanel implements ActionListener {
                     6,
                     12,
                     6,
-                    new Color(80, 220, 255, 180),
+                    trail,
                     true
             ));
         }
@@ -264,6 +352,9 @@ public class GamePanel extends JPanel implements ActionListener {
 
     private void spawnIdleParticles() {
         if (random.nextInt(4) == 0) {
+            Color idle = place == Place.DAY
+                    ? new Color(255, 180, 60, 120)
+                    : new Color(255, 80, 180, 120);
             particles.add(new Particle(
                     random.nextInt(WIDTH),
                     HEIGHT,
@@ -271,7 +362,7 @@ public class GamePanel extends JPanel implements ActionListener {
                     -1.5,
                     40,
                     4,
-                    new Color(255, 80, 180, 120),
+                    idle,
                     true
             ));
         }
@@ -322,49 +413,71 @@ public class GamePanel extends JPanel implements ActionListener {
         for (Particle particle : particles) {
             particle.draw(g);
         }
-        for (Car enemy : enemies) {
-            enemy.draw(g, wheelSpin);
-        }
 
-        if (invincible == 0 || (invincible / 6) % 2 == 0) {
-            player.draw(g, wheelSpin);
-        }
-
-        drawHud(g);
-        if (!running) {
-            drawGameOver(g);
+        if (!inMenu) {
+            for (Car enemy : enemies) {
+                enemy.draw(g, wheelSpin);
+            }
+            if (invincible == 0 || (invincible / 6) % 2 == 0) {
+                player.draw(g, wheelSpin);
+            }
+            drawHud(g);
+            if (!running) {
+                drawGameOver(g);
+            }
+        } else {
+            drawMenu(g);
         }
     }
 
     private void drawSky(Graphics2D g) {
-        GradientPaint sky = new GradientPaint(0, 0, new Color(12, 8, 40), 0, HEIGHT, new Color(40, 10, 70));
-        g.setPaint(sky);
-        g.fillRect(0, 0, WIDTH, HEIGHT);
+        if (place == Place.DAY) {
+            GradientPaint sky = new GradientPaint(0, 0, new Color(110, 180, 255), 0, HEIGHT, new Color(210, 235, 255));
+            g.setPaint(sky);
+            g.fillRect(0, 0, WIDTH, HEIGHT);
 
-        g.setColor(new Color(255, 255, 255, 50));
-        for (int i = 0; i < 24; i++) {
-            int sx = (i * 97 + (int) (distance * 0.02)) % WIDTH;
-            int sy = (i * 53) % (HEIGHT / 2);
-            g.fillOval(sx, sy, 2, 2);
+            g.setColor(new Color(255, 220, 80));
+            g.fillOval(WIDTH - 110, 36, 54, 54);
+            g.setColor(new Color(255, 240, 160, 90));
+            g.fillOval(WIDTH - 124, 24, 82, 82);
+        } else {
+            GradientPaint sky = new GradientPaint(0, 0, new Color(12, 8, 40), 0, HEIGHT, new Color(40, 10, 70));
+            g.setPaint(sky);
+            g.fillRect(0, 0, WIDTH, HEIGHT);
+
+            g.setColor(new Color(255, 255, 255, 50));
+            for (int i = 0; i < 24; i++) {
+                int sx = (i * 97 + (int) (distance * 0.02)) % WIDTH;
+                int sy = (i * 53) % (HEIGHT / 2);
+                g.fillOval(sx, sy, 2, 2);
+            }
         }
     }
 
     private void drawScenery(Graphics2D g) {
         for (Scenery item : scenery) {
-            g.setColor(new Color(20, 80, 70));
-            g.fillRect((int) item.x + (int) item.size / 2 - 4, (int) item.y + 10, 8, (int) item.height);
-            g.setColor(new Color(40, 180, 120));
-            g.fillOval((int) item.x, (int) item.y - 10, (int) item.size * 2, (int) item.size * 2);
-            g.setColor(new Color(255, 80, 200, 50));
-            g.fillOval((int) item.x + 6, (int) item.y, 10, 10);
+            if (place == Place.DAY) {
+                g.setColor(new Color(90, 70, 40));
+                g.fillRect((int) item.x + (int) item.size / 2 - 4, (int) item.y + 10, 8, (int) item.height);
+                g.setColor(new Color(50, 160, 70));
+                g.fillOval((int) item.x, (int) item.y - 10, (int) item.size * 2, (int) item.size * 2);
+                g.setColor(new Color(255, 200, 80, 70));
+                g.fillOval((int) item.x + 6, (int) item.y, 10, 10);
+            } else {
+                g.setColor(new Color(20, 80, 70));
+                g.fillRect((int) item.x + (int) item.size / 2 - 4, (int) item.y + 10, 8, (int) item.height);
+                g.setColor(new Color(40, 180, 120));
+                g.fillOval((int) item.x, (int) item.y - 10, (int) item.size * 2, (int) item.size * 2);
+                g.setColor(new Color(255, 80, 200, 50));
+                g.fillOval((int) item.x + 6, (int) item.y, 10, 10);
+            }
         }
     }
 
     private void drawRoad(Graphics2D g) {
-        GradientPaint road = new GradientPaint(
-                ROAD_LEFT, 0, new Color(28, 28, 36),
-                ROAD_RIGHT, 0, new Color(18, 18, 26)
-        );
+        Color roadA = place == Place.DAY ? new Color(70, 72, 78) : new Color(28, 28, 36);
+        Color roadB = place == Place.DAY ? new Color(52, 54, 60) : new Color(18, 18, 26);
+        GradientPaint road = new GradientPaint(ROAD_LEFT, 0, roadA, ROAD_RIGHT, 0, roadB);
         g.setPaint(road);
         Path2D path = new Path2D.Double();
         path.moveTo(ROAD_LEFT - 20, HEIGHT);
@@ -374,10 +487,10 @@ public class GamePanel extends JPanel implements ActionListener {
         path.closePath();
         g.fill(path);
 
-        g.setColor(new Color(255, 60, 160));
+        g.setColor(place == Place.DAY ? new Color(220, 80, 60) : new Color(255, 60, 160));
         g.setStroke(new BasicStroke(6f));
         g.drawLine(ROAD_LEFT, 0, ROAD_LEFT - 20, HEIGHT);
-        g.setColor(new Color(80, 220, 255));
+        g.setColor(place == Place.DAY ? new Color(40, 140, 220) : new Color(80, 220, 255));
         g.drawLine(ROAD_RIGHT, 0, ROAD_RIGHT + 20, HEIGHT);
 
         g.setStroke(new BasicStroke(6f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, new float[] {28f, 22f}, (float) dashOffset));
@@ -392,25 +505,94 @@ public class GamePanel extends JPanel implements ActionListener {
         g.drawLine(lane2, 0, lane2 + 6, HEIGHT);
 
         double glow = 0.45 + 0.25 * Math.sin(nitroPulse);
-        g.setColor(new Color(0, 255, 220, (int) (40 * glow)));
-        g.fillRect(ROAD_LEFT, 0, ROAD_RIGHT - ROAD_LEFT, HEIGHT);
+        if (place == Place.NIGHT) {
+            g.setColor(new Color(0, 255, 220, (int) (40 * glow)));
+            g.fillRect(ROAD_LEFT, 0, ROAD_RIGHT - ROAD_LEFT, HEIGHT);
+        } else if (powerBurst > 0) {
+            g.setColor(new Color(255, 200, 60, (int) (28 * glow)));
+            g.fillRect(ROAD_LEFT, 0, ROAD_RIGHT - ROAD_LEFT, HEIGHT);
+        }
     }
 
     private void drawHud(Graphics2D g) {
         g.setColor(new Color(0, 0, 0, 120));
-        g.fillRoundRect(16, 16, 200, 92, 16, 16);
+        g.fillRoundRect(16, 16, 200, 118, 16, 16);
         g.setColor(Color.WHITE);
         g.setFont(new Font("SansSerif", Font.BOLD, 16));
         g.drawString("SCORE  " + score, 28, 42);
         g.drawString("SPEED  " + (int) (speed * 12) + " km/h", 28, 66);
         g.drawString("LIVES  " + lives, 28, 90);
+        g.drawString("PLACE  " + place.name(), 28, 114);
+
+        int barX = 28;
+        int barY = HEIGHT - 48;
+        int barW = 160;
+        int barH = 16;
+        g.setColor(new Color(0, 0, 0, 140));
+        g.fillRoundRect(barX - 8, barY - 22, barW + 16, 48, 12, 12);
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("SansSerif", Font.BOLD, 12));
+        g.drawString("POWER", barX, barY - 6);
+        g.setColor(new Color(40, 40, 50));
+        g.fillRoundRect(barX, barY, barW, barH, 8, 8);
+        int fill = (int) (barW * (power / POWER_MAX));
+        Color powerColor = powerBurst > 0
+                ? new Color(255, 200, 60)
+                : (power >= POWER_COST ? new Color(80, 220, 255) : new Color(120, 130, 150));
+        g.setColor(powerColor);
+        g.fillRoundRect(barX, barY, Math.max(0, fill), barH, 8, 8);
 
         g.setColor(new Color(0, 0, 0, 120));
-        g.fillRoundRect(WIDTH - 168, 16, 152, 48, 16, 16);
+        g.fillRoundRect(WIDTH - 178, 16, 162, 64, 16, 16);
         g.setColor(new Color(180, 230, 255));
         g.setFont(new Font("SansSerif", Font.PLAIN, 13));
-        g.drawString("Arrows / WASD", WIDTH - 150, 36);
-        g.drawString("Hold UP to boost", WIDTH - 150, 54);
+        g.drawString("Arrows / WASD", WIDTH - 160, 36);
+        g.drawString("SPACE — Use Power", WIDTH - 160, 54);
+        if (powerBurst > 0) {
+            g.setColor(new Color(255, 210, 80));
+            g.drawString("POWER ACTIVE", WIDTH - 160, 70);
+        }
+    }
+
+    private void drawMenu(Graphics2D g) {
+        g.setColor(new Color(0, 0, 0, 140));
+        g.fillRoundRect(40, 150, WIDTH - 80, 380, 24, 24);
+
+        g.setColor(place == Place.DAY ? new Color(255, 200, 80) : new Color(255, 80, 180));
+        g.setFont(new Font("SansSerif", Font.BOLD, 32));
+        g.drawString("NEON RUSH", 140, 210);
+
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("SansSerif", Font.BOLD, 18));
+        g.drawString("Choose place", 170, 260);
+
+        drawPlaceOption(g, 70, 290, "DAY", place == Place.DAY);
+        drawPlaceOption(g, 250, 290, "NIGHT", place == Place.NIGHT);
+
+        g.setColor(new Color(200, 220, 255));
+        g.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        g.drawString("LEFT / RIGHT — switch place", 130, 420);
+        g.drawString("ENTER or SPACE — start race", 128, 448);
+        g.drawString("In race: SPACE uses Power", 136, 476);
+    }
+
+    private void drawPlaceOption(Graphics2D g, int x, int y, String label, boolean selected) {
+        if (selected) {
+            g.setColor(new Color(255, 255, 255, 40));
+            g.fillRoundRect(x, y, 150, 90, 16, 16);
+            g.setColor(new Color(80, 220, 255));
+            g.setStroke(new BasicStroke(3f));
+            g.drawRoundRect(x, y, 150, 90, 16, 16);
+        } else {
+            g.setColor(new Color(255, 255, 255, 18));
+            g.fillRoundRect(x, y, 150, 90, 16, 16);
+            g.setColor(new Color(255, 255, 255, 50));
+            g.setStroke(new BasicStroke(1.5f));
+            g.drawRoundRect(x, y, 150, 90, 16, 16);
+        }
+        g.setColor(selected ? Color.WHITE : new Color(180, 180, 200));
+        g.setFont(new Font("SansSerif", Font.BOLD, 22));
+        g.drawString(label, x + 44, y + 52);
     }
 
     private void drawGameOver(Graphics2D g) {
@@ -422,7 +604,7 @@ public class GamePanel extends JPanel implements ActionListener {
         g.setColor(Color.WHITE);
         g.setFont(new Font("SansSerif", Font.PLAIN, 18));
         g.drawString("Score: " + score, 180, HEIGHT / 2 + 16);
-        g.drawString("Press ENTER to race again", 112, HEIGHT / 2 + 50);
+        g.drawString("Press ENTER for place select", 98, HEIGHT / 2 + 50);
     }
 
     private static class Scenery {
