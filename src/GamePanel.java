@@ -5,17 +5,21 @@ import java.awt.Font;
 import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.geom.Path2D;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 public class GamePanel extends JPanel implements ActionListener {
@@ -26,6 +30,10 @@ public class GamePanel extends JPanel implements ActionListener {
     private static final double POWER_MAX = 100;
     private static final double POWER_COST = 45;
     private static final int POWER_BURST_FRAMES = 48;
+    private static final Rectangle DAY_OPTION = new Rectangle(70, 290, 150, 90);
+    private static final Rectangle NIGHT_OPTION = new Rectangle(250, 290, 150, 90);
+    private static final Rectangle START_BUTTON = new Rectangle(140, 400, 200, 44);
+    private static final Rectangle POWER_BUTTON = new Rectangle(WIDTH - 178, HEIGHT - 70, 150, 44);
 
     enum Place {
         DAY,
@@ -62,6 +70,7 @@ public class GamePanel extends JPanel implements ActionListener {
     public GamePanel() {
         setPreferredSize(new Dimension(WIDTH, HEIGHT));
         setFocusable(true);
+        setBackground(Color.BLACK);
         player = new Car(WIDTH / 2.0 - 21, HEIGHT - 160, new Color(0, 210, 255), new Color(255, 80, 180), true);
 
         addKeyListener(new KeyAdapter() {
@@ -89,12 +98,45 @@ public class GamePanel extends JPanel implements ActionListener {
             }
         });
 
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                requestFocusInWindow();
+                handleClick(e.getX(), e.getY());
+            }
+        });
+
         for (int i = 0; i < 18; i++) {
             scenery.add(randomScenery(-i * 80));
         }
 
         timer = new Timer(16, this);
         timer.start();
+        SwingUtilities.invokeLater(this::requestFocusInWindow);
+    }
+
+    private void handleClick(int x, int y) {
+        if (inMenu) {
+            if (DAY_OPTION.contains(x, y)) {
+                place = Place.DAY;
+                return;
+            }
+            if (NIGHT_OPTION.contains(x, y)) {
+                place = Place.NIGHT;
+                return;
+            }
+            if (START_BUTTON.contains(x, y)) {
+                startRace();
+            }
+            return;
+        }
+        if (!running && new Rectangle(98, HEIGHT / 2 + 30, 280, 40).contains(x, y)) {
+            restart();
+            return;
+        }
+        if (running && POWER_BUTTON.contains(x, y)) {
+            tryUsePower();
+        }
     }
 
     private void handleMenuKey(int code) {
@@ -265,6 +307,7 @@ public class GamePanel extends JPanel implements ActionListener {
                 it.remove();
                 score += 10;
             } else if (invincible <= 0 && player.intersects(enemy)) {
+                it.remove();
                 crash(enemy);
             }
         }
@@ -285,7 +328,6 @@ public class GamePanel extends JPanel implements ActionListener {
         invincible = 90;
         speed = 7;
         powerBurst = 0;
-        enemies.remove(enemy);
         if (lives <= 0) {
             running = false;
         }
@@ -543,15 +585,27 @@ public class GamePanel extends JPanel implements ActionListener {
         g.fillRoundRect(barX, barY, Math.max(0, fill), barH, 8, 8);
 
         g.setColor(new Color(0, 0, 0, 120));
-        g.fillRoundRect(WIDTH - 178, 16, 162, 64, 16, 16);
+        g.fillRoundRect(WIDTH - 178, 16, 162, 48, 16, 16);
         g.setColor(new Color(180, 230, 255));
         g.setFont(new Font("SansSerif", Font.PLAIN, 13));
         g.drawString("Arrows / WASD", WIDTH - 160, 36);
-        g.drawString("SPACE — Use Power", WIDTH - 160, 54);
+        g.drawString("or click Use Power", WIDTH - 160, 54);
+
+        boolean canPower = powerBurst <= 0 && power >= POWER_COST;
         if (powerBurst > 0) {
-            g.setColor(new Color(255, 210, 80));
-            g.drawString("POWER ACTIVE", WIDTH - 160, 70);
+            g.setColor(new Color(255, 200, 60));
+        } else if (canPower) {
+            g.setColor(new Color(0, 180, 220));
+        } else {
+            g.setColor(new Color(70, 75, 90));
         }
+        g.fillRoundRect(POWER_BUTTON.x, POWER_BUTTON.y, POWER_BUTTON.width, POWER_BUTTON.height, 14, 14);
+        g.setColor(canPower || powerBurst > 0 ? Color.WHITE : new Color(160, 165, 180));
+        g.setStroke(new BasicStroke(2f));
+        g.drawRoundRect(POWER_BUTTON.x, POWER_BUTTON.y, POWER_BUTTON.width, POWER_BUTTON.height, 14, 14);
+        g.setFont(new Font("SansSerif", Font.BOLD, 16));
+        String powerLabel = powerBurst > 0 ? "POWER ACTIVE" : "USE POWER";
+        g.drawString(powerLabel, POWER_BUTTON.x + 18, POWER_BUTTON.y + 28);
     }
 
     private void drawMenu(Graphics2D g) {
@@ -566,14 +620,19 @@ public class GamePanel extends JPanel implements ActionListener {
         g.setFont(new Font("SansSerif", Font.BOLD, 18));
         g.drawString("Choose place", 170, 260);
 
-        drawPlaceOption(g, 70, 290, "DAY", place == Place.DAY);
-        drawPlaceOption(g, 250, 290, "NIGHT", place == Place.NIGHT);
+        drawPlaceOption(g, DAY_OPTION.x, DAY_OPTION.y, "DAY", place == Place.DAY);
+        drawPlaceOption(g, NIGHT_OPTION.x, NIGHT_OPTION.y, "NIGHT", place == Place.NIGHT);
+
+        g.setColor(new Color(40, 160, 255));
+        g.fillRoundRect(START_BUTTON.x, START_BUTTON.y, START_BUTTON.width, START_BUTTON.height, 14, 14);
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("SansSerif", Font.BOLD, 18));
+        g.drawString("START RACE", START_BUTTON.x + 38, START_BUTTON.y + 28);
 
         g.setColor(new Color(200, 220, 255));
         g.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        g.drawString("LEFT / RIGHT — switch place", 130, 420);
-        g.drawString("ENTER or SPACE — start race", 128, 448);
-        g.drawString("In race: SPACE uses Power", 136, 476);
+        g.drawString("Click DAY / NIGHT, then START", 118, 470);
+        g.drawString("Keys: LEFT/RIGHT + ENTER also work", 108, 494);
     }
 
     private void drawPlaceOption(Graphics2D g, int x, int y, String label, boolean selected) {
